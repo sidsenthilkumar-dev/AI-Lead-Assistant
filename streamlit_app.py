@@ -14,12 +14,10 @@ from google import genai
 # ============================================================
 
 APP_NAME = "AI Lead Assistant"
-APP_VERSION = "3.0"
+APP_VERSION = "3.1"
 
 DATABASE_PATH = "leads.db"
 
-# Keep this configurable so the model can be changed without
-# editing the application code.
 DEFAULT_MODEL = "gemini-3.5-flash"
 
 PIPELINE_STATUSES = [
@@ -34,7 +32,7 @@ PIPELINE_STATUSES = [
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-USER_AGENT = "AI-Lead-Assistant/3.0"
+USER_AGENT = "AI-Lead-Assistant/3.1"
 
 
 # ============================================================
@@ -57,14 +55,12 @@ st.markdown(
     """
     <style>
 
-        /* Main application width */
         .block-container {
             max-width: 1450px;
             padding-top: 2rem;
             padding-bottom: 4rem;
         }
 
-        /* Typography */
         h1 {
             font-size: 2.25rem !important;
             font-weight: 700 !important;
@@ -82,7 +78,6 @@ st.markdown(
             font-weight: 650 !important;
         }
 
-        /* Sidebar */
         section[data-testid="stSidebar"] {
             border-right: 1px solid rgba(128, 128, 128, 0.18);
         }
@@ -91,7 +86,6 @@ st.markdown(
             padding-top: 2rem;
         }
 
-        /* Metrics */
         [data-testid="stMetric"] {
             border: 1px solid rgba(128, 128, 128, 0.22);
             border-radius: 10px;
@@ -107,20 +101,17 @@ st.markdown(
             font-size: 1.65rem;
         }
 
-        /* Buttons */
         div.stButton > button {
             border-radius: 7px;
             min-height: 2.4rem;
             font-weight: 500;
         }
 
-        /* Inputs */
         div[data-baseweb="input"] > div,
         div[data-baseweb="textarea"] > div {
             border-radius: 7px;
         }
 
-        /* Cards */
         .app-card {
             border: 1px solid rgba(128, 128, 128, 0.22);
             border-radius: 10px;
@@ -153,17 +144,10 @@ st.markdown(
             line-height: 1;
         }
 
-        .status-line {
-            font-size: 0.85rem;
-            opacity: 0.75;
-        }
-
-        /* Reduce excessive Streamlit spacing */
         div[data-testid="stVerticalBlock"] > div {
             gap: 0.55rem;
         }
 
-        /* Tables */
         [data-testid="stDataFrame"] {
             border-radius: 8px;
         }
@@ -183,6 +167,9 @@ if "page" not in st.session_state:
 
 if "qualified_leads" not in st.session_state:
     st.session_state.qualified_leads = []
+
+if "discovered_businesses" not in st.session_state:
+    st.session_state.discovered_businesses = []
 
 if "last_search_location" not in st.session_state:
     st.session_state.last_search_location = ""
@@ -223,8 +210,8 @@ def get_api_key() -> str:
 
 def get_model_name() -> str:
     """
-    Allow the model to be changed through Streamlit secrets
-    or an environment variable without editing the code.
+    Allow the Gemini model to be changed through Streamlit
+    secrets or an environment variable.
     """
 
     try:
@@ -332,9 +319,6 @@ def generate_json_response(
 ) -> Optional[Any]:
     """
     Request JSON from Gemini and safely parse the result.
-
-    The prompt explicitly requests JSON so the function can
-    remain compatible with different Google GenAI SDK versions.
     """
 
     response_text = generate_ai_response(prompt)
@@ -348,8 +332,7 @@ def generate_json_response(
         return json.loads(cleaned)
 
     except json.JSONDecodeError:
-        # Attempt to recover the first JSON object/array if the
-        # model included additional text.
+
         object_start = cleaned.find("{")
         object_end = cleaned.rfind("}")
 
@@ -369,8 +352,10 @@ def generate_json_response(
             )
 
         for candidate in candidates:
+
             try:
                 return json.loads(candidate)
+
             except json.JSONDecodeError:
                 continue
 
@@ -391,6 +376,7 @@ def get_connection() -> sqlite3.Connection:
     """
 
     connection = sqlite3.connect(DATABASE_PATH)
+
     connection.row_factory = sqlite3.Row
 
     return connection
@@ -689,9 +675,7 @@ def geocode_location(
     location: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Convert a location such as Raleigh, NC into coordinates.
-
-    Results are cached for one hour.
+    Convert a location into coordinates.
     """
 
     response = requests.get(
@@ -728,9 +712,6 @@ def search_real_businesses(
 ) -> List[Dict[str, Any]]:
     """
     Search OpenStreetMap/Overpass for named businesses.
-
-    Search results are cached for 30 minutes to reduce repeated
-    external API calls during Streamlit reruns.
     """
 
     location_data = geocode_location(location)
@@ -808,9 +789,7 @@ def search_real_businesses(
             if value:
                 address_parts.append(value)
 
-        address = ", ".join(
-            address_parts
-        )
+        address = ", ".join(address_parts)
 
         website = (
             tags.get("website")
@@ -859,9 +838,7 @@ def search_real_businesses(
         if key not in unique_businesses:
             unique_businesses[key] = business
 
-    return list(
-        unique_businesses.values()
-    )
+    return list(unique_businesses.values())
 
 
 # ============================================================
@@ -875,14 +852,17 @@ def qualify_search_results(
     location: str,
 ) -> List[Dict[str, Any]]:
     """
-    Use Gemini to evaluate real business records against
-    the user's target customer profile.
+    Use Gemini to score real business records against the
+    user's target customer profile.
+
+    Gemini ranks potential fit instead of deciding whether
+    a discovered business should be shown at all.
     """
 
     if not businesses:
         return []
 
-    businesses_for_ai = businesses[:60]
+    businesses_for_ai = businesses[:50]
 
     business_data = []
 
@@ -894,19 +874,23 @@ def qualify_search_results(
         business_data.append(
             {
                 "lead_number": index,
-                "name": business["name"],
-                "industry": business["industry"],
-                "address": business["address"],
-                "website": business["website"],
-                "phone": business["phone"],
-                "source": business["source"],
+                "name": business.get("name", ""),
+                "industry": business.get("industry", ""),
+                "address": business.get("address", ""),
+                "website": business.get("website", ""),
+                "phone": business.get("phone", ""),
+                "source": business.get("source", ""),
             }
         )
 
     prompt = f"""
 You are an AI lead qualification system.
 
-A salesperson wants to identify potential customers.
+Your job is NOT to decide whether these businesses are real.
+They have already been discovered from a real business directory.
+
+Your job is to rank which businesses appear most relevant
+to the salesperson's target customer.
 
 SALESPERSON BUSINESS:
 {business_type}
@@ -917,25 +901,25 @@ TARGET CUSTOMER:
 TARGET LOCATION:
 {location}
 
-The following records came from a real business directory.
-
 BUSINESS RECORDS:
 {json.dumps(business_data, indent=2)}
 
-Evaluate the records.
+Instructions:
 
-Rules:
-
-- Only use information in the records.
-- Do not invent businesses.
-- Do not invent owners, employees, revenue, customers,
-  decision-makers, or company characteristics.
-- A potential need must be presented as a possibility.
-- Return no more than 15 leads.
-- relevance_score must be an integer from 1 to 100.
-- If there is not enough information, lower the score.
-- Explain why the business appears relevant based only
-  on available information.
+1. Evaluate the businesses based ONLY on the information provided.
+2. Do not invent owners, employees, revenue, customers, decision-makers,
+   company size, or business problems.
+3. A potential need must be described as a possibility.
+4. Prefer businesses whose industry clearly matches the target.
+5. Having a website, phone number, address, or other useful contact
+   information can increase practical lead quality.
+6. Do not require every field to be present.
+7. Return up to 15 of the most relevant businesses.
+8. relevance_score must be an integer from 1 to 100.
+9. Even if information is limited, include businesses that are
+   reasonably relevant rather than returning an empty list.
+10. A score represents potential relevance, NOT certainty.
+11. Use the exact lead_number from the records.
 
 Return ONLY valid JSON using this exact structure:
 
@@ -944,8 +928,8 @@ Return ONLY valid JSON using this exact structure:
         {{
             "lead_number": 1,
             "relevance_score": 85,
-            "reason": "Short evidence-based explanation.",
-            "potential_need": "Possible business need."
+            "reason": "The business appears relevant because its listed industry matches the target market.",
+            "potential_need": "Possible business need related to the salesperson's stated offering."
         }}
     ]
 }}
@@ -1014,13 +998,13 @@ Return ONLY valid JSON using this exact structure:
                 "reason": str(
                     item.get(
                         "reason",
-                        "",
+                        "Potential relevance based on available business information.",
                     )
                 ),
                 "potential_need": str(
                     item.get(
                         "potential_need",
-                        "",
+                        "Potential need should be confirmed through outreach.",
                     )
                 ),
             }
@@ -1112,6 +1096,7 @@ Return ONLY valid JSON:
         return None
 
     try:
+
         score = int(
             result.get(
                 "score",
@@ -1123,6 +1108,7 @@ Return ONLY valid JSON:
         ValueError,
         TypeError,
     ):
+
         score = 0
 
     score = max(
@@ -1372,10 +1358,13 @@ def render_connection_status(
     """
 
     if connected:
+
         st.caption(
             f"{label}: Connected"
         )
+
     else:
+
         st.caption(
             f"{label}: Not configured"
         )
@@ -1407,6 +1396,7 @@ def render_lead_card(
             )
 
             if lead["name"]:
+
                 st.caption(
                     lead["name"]
                 )
@@ -1424,6 +1414,7 @@ def render_lead_card(
                 )
 
             if metadata:
+
                 st.caption(
                     " | ".join(metadata)
                 )
@@ -1440,11 +1431,13 @@ def render_lead_card(
         if not compact:
 
             if lead["problem"]:
+
                 st.write(
                     f'**Potential Need:** {lead["problem"]}'
                 )
 
             if lead["source"]:
+
                 st.caption(
                     f'Source: {lead["source"]}'
                 )
@@ -1459,8 +1452,7 @@ def render_lead_card(
                 PIPELINE_STATUSES.index(
                     lead["status"]
                 )
-                if lead["status"]
-                in PIPELINE_STATUSES
+                if lead["status"] in PIPELINE_STATUSES
                 else 0
             )
 
@@ -1575,8 +1567,14 @@ with st.sidebar:
 # ============================================================
 
 leads = get_leads()
-status_counts = get_status_counts(leads)
-average_score = get_average_score(leads)
+
+status_counts = get_status_counts(
+    leads
+)
+
+average_score = get_average_score(
+    leads
+)
 
 
 # ============================================================
@@ -1604,24 +1602,28 @@ if page == "Dashboard":
     )
 
     with metric_col1:
+
         st.metric(
             "Total Leads",
             len(leads),
         )
 
     with metric_col2:
+
         st.metric(
             "Interested",
             status_counts["Interested"],
         )
 
     with metric_col3:
+
         st.metric(
             "Meetings",
             status_counts["Meeting"],
         )
 
     with metric_col4:
+
         st.metric(
             "Won",
             status_counts["Won"],
@@ -1644,18 +1646,21 @@ if page == "Dashboard":
         )
 
         with pipeline_col1:
+
             st.metric(
                 "New",
                 status_counts["New"],
             )
 
         with pipeline_col2:
+
             st.metric(
                 "Contacted",
                 status_counts["Contacted"],
             )
 
         with pipeline_col3:
+
             st.metric(
                 "Lost",
                 status_counts["Lost"],
@@ -1668,6 +1673,7 @@ if page == "Dashboard":
             )
 
             for lead in leads[:5]:
+
                 render_lead_card(
                     lead,
                     compact=True,
@@ -1756,25 +1762,41 @@ if page == "Dashboard":
     )
 
     with workflow_col1:
-        st.markdown("**01 — Discover**")
+
+        st.markdown(
+            "**01 — Discover**"
+        )
+
         st.caption(
             "Search real business records using a target market and location."
         )
 
     with workflow_col2:
-        st.markdown("**02 — Qualify**")
+
+        st.markdown(
+            "**02 — Qualify**"
+        )
+
         st.caption(
             "Use AI to evaluate relevance and identify missing information."
         )
 
     with workflow_col3:
-        st.markdown("**03 — Personalize**")
+
+        st.markdown(
+            "**03 — Personalize**"
+        )
+
         st.caption(
             "Generate outreach using only known lead information."
         )
 
     with workflow_col4:
-        st.markdown("**04 — Track**")
+
+        st.markdown(
+            "**04 — Track**"
+        )
+
         st.caption(
             "Move opportunities through a simple sales pipeline."
         )
@@ -1794,7 +1816,7 @@ elif page == "Find Leads":
 
     st.write(
         "Search OpenStreetMap business records, then use Gemini "
-        "to identify which results appear relevant to your target customer."
+        "to rank potential customer fit."
     )
 
     st.divider()
@@ -1888,6 +1910,10 @@ elif page == "Find Leads":
                         len(raw_businesses)
                     )
 
+                    st.session_state.discovered_businesses = (
+                        raw_businesses
+                    )
+
                 except Exception as error:
 
                     raw_businesses = []
@@ -1897,7 +1923,10 @@ elif page == "Find Leads":
                     )
 
                     if st.session_state.debug_mode:
-                        st.exception(error)
+
+                        st.exception(
+                            error
+                        )
 
             if raw_businesses:
 
@@ -1924,29 +1953,37 @@ elif page == "Find Leads":
 
                 else:
 
+                    st.session_state.qualified_leads = []
+
                     st.warning(
-                        "Businesses were found, but the AI did not "
-                        "identify relevant prospects from the available data."
+                        "The AI could not confidently rank the businesses. "
+                        "The discovered businesses are still available below."
                     )
 
             else:
+
+                st.session_state.qualified_leads = []
 
                 st.warning(
                     "No named businesses were found. "
                     "Try a larger radius or a nearby city."
                 )
 
+    # ========================================================
+    # AI-RANKED PROSPECTS
+    # ========================================================
+
     if st.session_state.qualified_leads:
 
         st.divider()
 
         st.subheader(
-            "Potential Leads"
+            "AI-Ranked Prospects"
         )
 
         st.caption(
             f"{len(st.session_state.qualified_leads)} "
-            "potential prospects identified."
+            "potential prospects ranked by AI."
         )
 
         for index, lead in enumerate(
@@ -1970,16 +2007,19 @@ elif page == "Find Leads":
                     metadata = []
 
                     if lead["industry"]:
+
                         metadata.append(
                             lead["industry"]
                         )
 
                     if lead["address"]:
+
                         metadata.append(
                             lead["address"]
                         )
 
                     if metadata:
+
                         st.caption(
                             " | ".join(metadata)
                         )
@@ -2004,13 +2044,28 @@ elif page == "Find Leads":
                             lead["potential_need"]
                         )
 
-                    source = lead.get(
-                        "source",
-                        "Unknown",
-                    )
+                    contact_info = []
+
+                    if lead["phone"]:
+
+                        contact_info.append(
+                            f"Phone: {lead['phone']}"
+                        )
+
+                    if lead["website"]:
+
+                        contact_info.append(
+                            "Website available"
+                        )
+
+                    if contact_info:
+
+                        st.caption(
+                            " | ".join(contact_info)
+                        )
 
                     st.caption(
-                        f"Source: {source}"
+                        f"Source: {lead.get('source', 'Unknown')}"
                     )
 
                 with result_col2:
@@ -2074,6 +2129,93 @@ elif page == "Find Leads":
                         st.link_button(
                             "Open Website",
                             lead["website"],
+                            use_container_width=True,
+                        )
+
+    # ========================================================
+    # DISCOVERED BUSINESSES
+    # ========================================================
+
+    if st.session_state.discovered_businesses:
+
+        st.divider()
+
+        st.subheader(
+            "Discovered Businesses"
+        )
+
+        st.caption(
+            "Businesses returned directly from OpenStreetMap. "
+            "These have not been filtered out by AI."
+        )
+
+        discovered = st.session_state.discovered_businesses
+
+        for index, business in enumerate(
+            discovered[:100]
+        ):
+
+            with st.container(
+                border=True,
+            ):
+
+                business_col1, business_col2 = st.columns(
+                    [4, 1]
+                )
+
+                with business_col1:
+
+                    st.markdown(
+                        f"**{business['name']}**"
+                    )
+
+                    metadata = []
+
+                    if business["industry"]:
+
+                        metadata.append(
+                            business["industry"]
+                        )
+
+                    if business["address"]:
+
+                        metadata.append(
+                            business["address"]
+                        )
+
+                    if metadata:
+
+                        st.caption(
+                            " | ".join(metadata)
+                        )
+
+                    contact_info = []
+
+                    if business["phone"]:
+
+                        contact_info.append(
+                            f"Phone: {business['phone']}"
+                        )
+
+                    if business["website"]:
+
+                        contact_info.append(
+                            "Website available"
+                        )
+
+                    if contact_info:
+
+                        st.caption(
+                            " | ".join(contact_info)
+                        )
+
+                with business_col2:
+
+                    if business["website"]:
+
+                        st.link_button(
+                            "Website",
+                            business["website"],
                             use_container_width=True,
                         )
 
@@ -2143,8 +2285,7 @@ elif page == "Pipeline":
             filtered_leads = [
                 lead
                 for lead in filtered_leads
-                if lead["status"]
-                == selected_status_filter
+                if lead["status"] == selected_status_filter
             ]
 
         if search_pipeline.strip():
@@ -2228,16 +2369,19 @@ elif page == "AI Tools":
             )
 
             if selected_lead["industry"]:
+
                 st.write(
                     f"**Industry:** {selected_lead['industry']}"
                 )
 
             if selected_lead["address"]:
+
                 st.write(
                     f"**Location:** {selected_lead['address']}"
                 )
 
             if selected_lead["problem"]:
+
                 st.write(
                     f"**Potential Need:** "
                     f"{selected_lead['problem']}"
@@ -2250,7 +2394,7 @@ elif page == "AI Tools":
                 selected_lead["status"],
             )
 
-            if selected_lead["lead_score"]:
+            if selected_lead["lead_score"] is not None:
 
                 st.metric(
                     "AI Score",
@@ -2297,11 +2441,6 @@ elif page == "AI Tools":
                         "score"
                     ]
 
-                    summary = qualification.get(
-                        "summary",
-                        "",
-                    )
-
                     qualification_text = json.dumps(
                         qualification,
                         indent=2,
@@ -2329,22 +2468,17 @@ elif page == "AI Tools":
                 (
                     lead
                     for lead in refreshed_leads
-                    if lead["id"]
-                    == selected_lead_id
+                    if lead["id"] == selected_lead_id
                 ),
                 None,
             )
 
-            if current_lead and current_lead[
-                "qualification"
-            ]:
+            if current_lead and current_lead["qualification"]:
 
                 try:
 
                     qualification_data = json.loads(
-                        current_lead[
-                            "qualification"
-                        ]
+                        current_lead["qualification"]
                     )
 
                 except (
@@ -2361,9 +2495,7 @@ elif page == "AI Tools":
 
                     score = qualification_data.get(
                         "score",
-                        current_lead[
-                            "lead_score"
-                        ],
+                        current_lead["lead_score"],
                     )
 
                     score_col, summary_col = st.columns(
@@ -2472,9 +2604,7 @@ elif page == "AI Tools":
                     ):
 
                         st.write(
-                            current_lead[
-                                "qualification"
-                            ]
+                            current_lead["qualification"]
                         )
 
         # ----------------------------------------------------
@@ -2618,22 +2748,17 @@ elif page == "AI Tools":
                 (
                     lead
                     for lead in refreshed_leads
-                    if lead["id"]
-                    == selected_lead_id
+                    if lead["id"] == selected_lead_id
                 ),
                 None,
             )
 
-            if current_lead and current_lead[
-                "follow_up"
-            ]:
+            if current_lead and current_lead["follow_up"]:
 
                 try:
 
                     follow_up_data = json.loads(
-                        current_lead[
-                            "follow_up"
-                        ]
+                        current_lead["follow_up"]
                     )
 
                 except (
@@ -2698,9 +2823,7 @@ elif page == "AI Tools":
                 else:
 
                     st.write(
-                        current_lead[
-                            "follow_up"
-                        ]
+                        current_lead["follow_up"]
                     )
 
 
