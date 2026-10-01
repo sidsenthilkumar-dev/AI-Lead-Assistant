@@ -1,27 +1,27 @@
 import streamlit as st
 from google import genai
 
-# Connect to Gemini
+# Set up Gemini
 client = genai.Client(
     api_key=st.secrets["GEMINI_API_KEY"]
 )
 
-# App title
+# app title
 st.title("AI Lead Assistant")
 st.write("Generate a lead strategy for your business.")
 
-# User inputs
+# Get information from the user
 business = st.text_input(
-    "🏢 Business",
+    "Business",
     placeholder="Example: Local roofing company"
 )
 
 goal = st.text_input(
-    "🎯 Goal",
+    "Goal",
     placeholder="Example: Get 20 new customers this month"
 )
 
-# Generate button
+# Generate the strategy
 if st.button("Generate Lead Strategy"):
 
     if not business or not goal:
@@ -45,7 +45,7 @@ Describe exactly who the business should target.
 Give specific places, platforms, websites, or types of businesses where potential customers can be found.
 
 3. Personalized First Outreach
-Write a short, natural message that could actually be sent to a potential customer.
+Write a short message that could actually be sent to a potential customer.
 
 4. Follow-Up Message
 Write a follow-up message to send if they do not respond.
