@@ -9,9 +9,7 @@ import streamlit as st
 from google import genai
 
 
-# ============================================================
-# APPLICATION CONFIGURATION
-# ============================================================
+# App settings
 
 APP_NAME = "AI Lead Assistant"
 APP_VERSION = "3.1"
@@ -35,9 +33,7 @@ OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "AI-Lead-Assistant/3.1"
 
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
+# Set up the Streamlit page
 
 st.set_page_config(
     page_title=APP_NAME,
@@ -47,9 +43,7 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# CUSTOM STYLING
-# ============================================================
+# Custom CSS for the app
 
 st.markdown(
     """
@@ -158,9 +152,7 @@ st.markdown(
 )
 
 
-# ============================================================
-# SESSION STATE
-# ============================================================
+# Keep track of a few things while the app is running
 
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
@@ -181,14 +173,12 @@ if "debug_mode" not in st.session_state:
     st.session_state.debug_mode = False
 
 
-# ============================================================
-# API CONFIGURATION
-# ============================================================
+# Gemini API setup
 
 def get_api_key() -> str:
     """
-    Load the Gemini API key from Streamlit secrets or
-    the GEMINI_API_KEY environment variable.
+    Get the Gemini API key from Streamlit secrets or
+    the computer's environment variables.
     """
 
     try:
@@ -210,8 +200,7 @@ def get_api_key() -> str:
 
 def get_model_name() -> str:
     """
-    Allow the Gemini model to be changed through Streamlit
-    secrets or an environment variable.
+    Get the Gemini model from the app settings.
     """
 
     try:
@@ -241,15 +230,13 @@ else:
     client = None
 
 
-# ============================================================
-# GEMINI HELPERS
-# ============================================================
+# Functions for working with Gemini
 
 def generate_ai_response(
     prompt: str,
 ) -> Optional[str]:
     """
-    Send a prompt to Gemini and return generated text.
+    Send a prompt to Gemini and return the response.
     """
 
     if client is None:
@@ -287,7 +274,7 @@ def clean_json_response(
     response_text: str,
 ) -> str:
     """
-    Remove markdown code fences from AI JSON responses.
+    Remove the markdown formatting Gemini sometimes adds around JSON.
     """
 
     cleaned = response_text.strip()
@@ -318,7 +305,7 @@ def generate_json_response(
     prompt: str,
 ) -> Optional[Any]:
     """
-    Request JSON from Gemini and safely parse the result.
+    Ask Gemini for JSON and try to safely turn it into Python data.
     """
 
     response_text = generate_ai_response(prompt)
@@ -366,13 +353,11 @@ def generate_json_response(
         return None
 
 
-# ============================================================
-# DATABASE
-# ============================================================
+# Database functions
 
 def get_connection() -> sqlite3.Connection:
     """
-    Open a SQLite database connection.
+    Open the SQLite database.
     """
 
     connection = sqlite3.connect(DATABASE_PATH)
@@ -384,7 +369,7 @@ def get_connection() -> sqlite3.Connection:
 
 def create_database() -> None:
     """
-    Create the leads table if it does not exist.
+    Create the leads table if it doesn't already exist.
     """
 
     connection = get_connection()
@@ -417,7 +402,7 @@ def create_database() -> None:
 
 def migrate_database() -> None:
     """
-    Add missing columns to older database versions.
+    Add any new columns needed by newer versions of the app.
     """
 
     connection = get_connection()
@@ -465,7 +450,7 @@ def add_lead(
     source: str = "Manual",
 ) -> bool:
     """
-    Add a lead while preventing duplicate company/address pairs.
+    Add a lead unless the same company and address already exist.
     """
 
     connection = get_connection()
@@ -524,7 +509,7 @@ def add_lead(
 
 def get_leads() -> List[sqlite3.Row]:
     """
-    Return all leads, newest first.
+    Get all saved leads, with the newest ones first.
     """
 
     connection = get_connection()
@@ -562,7 +547,7 @@ def update_status(
     status: str,
 ) -> None:
     """
-    Update a lead's pipeline status.
+    Change the status of a lead in the pipeline.
     """
 
     if status not in PIPELINE_STATUSES:
@@ -593,7 +578,7 @@ def save_qualification(
     next_action: str,
 ) -> None:
     """
-    Save AI qualification data.
+    Save the AI qualification results for a lead.
     """
 
     connection = get_connection()
@@ -624,7 +609,7 @@ def save_follow_up(
     follow_up: str,
 ) -> None:
     """
-    Save an AI-generated follow-up plan.
+    Save a follow-up plan for a lead.
     """
 
     connection = get_connection()
@@ -649,7 +634,7 @@ def delete_lead(
     lead_id: int,
 ) -> None:
     """
-    Delete a lead.
+    Delete a lead from the database.
     """
 
     connection = get_connection()
@@ -666,16 +651,14 @@ def delete_lead(
     connection.close()
 
 
-# ============================================================
-# LOCATION SEARCH
-# ============================================================
+# Search for a location
 
 @st.cache_data(ttl=3600)
 def geocode_location(
     location: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Convert a location into coordinates.
+    Turn a location name into latitude and longitude.
     """
 
     response = requests.get(
@@ -711,7 +694,7 @@ def search_real_businesses(
     radius: int = 12000,
 ) -> List[Dict[str, Any]]:
     """
-    Search OpenStreetMap/Overpass for named businesses.
+    Search OpenStreetMap for businesses around a location.
     """
 
     location_data = geocode_location(location)
@@ -826,6 +809,7 @@ def search_real_businesses(
             }
         )
 
+    # Remove duplicate businesses
     unique_businesses = {}
 
     for business in businesses:
@@ -841,9 +825,7 @@ def search_real_businesses(
     return list(unique_businesses.values())
 
 
-# ============================================================
-# AI LEAD SEARCH
-# ============================================================
+# Use AI to rank the businesses we found
 
 def qualify_search_results(
     businesses: List[Dict[str, Any]],
@@ -852,11 +834,7 @@ def qualify_search_results(
     location: str,
 ) -> List[Dict[str, Any]]:
     """
-    Use Gemini to score real business records against the
-    user's target customer profile.
-
-    Gemini ranks potential fit instead of deciding whether
-    a discovered business should be shown at all.
+    Use Gemini to rank businesses based on the target customer.
     """
 
     if not businesses:
@@ -1020,15 +998,13 @@ Return ONLY valid JSON using this exact structure:
     return qualified
 
 
-# ============================================================
-# AI LEAD QUALIFICATION
-# ============================================================
+# AI lead qualification
 
 def qualify_lead(
     lead: sqlite3.Row,
 ) -> Optional[Dict[str, Any]]:
     """
-    Generate a structured qualification report.
+    Ask Gemini to analyze a saved lead.
     """
 
     prompt = f"""
@@ -1121,16 +1097,13 @@ Return ONLY valid JSON:
     return result
 
 
-# ============================================================
-# AI OUTREACH
-# ============================================================
+# Generate outreach for a lead
 
 def generate_outreach(
     lead: sqlite3.Row,
 ) -> Optional[Dict[str, Any]]:
     """
-    Generate personalized outreach without inventing
-    company information.
+    Create outreach using only information we have about the lead.
     """
 
     qualification = (
@@ -1190,15 +1163,13 @@ Return ONLY valid JSON:
     return result
 
 
-# ============================================================
-# AI FOLLOW-UP
-# ============================================================
+# Generate a follow-up plan
 
 def generate_follow_up(
     lead: sqlite3.Row,
 ) -> Optional[Dict[str, Any]]:
     """
-    Generate a structured follow-up plan.
+    Create a simple follow-up plan for a lead.
     """
 
     prompt = f"""
@@ -1242,16 +1213,14 @@ Return ONLY valid JSON:
     return result
 
 
-# ============================================================
-# BUSINESS STRATEGY
-# ============================================================
+# Generate a strategy for a business
 
 def generate_business_strategy(
     business: str,
     goal: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Generate a structured lead-generation strategy.
+    Use Gemini to create a lead-generation strategy.
     """
 
     prompt = f"""
@@ -1300,23 +1269,19 @@ Return ONLY valid JSON:
     return result
 
 
-# ============================================================
-# INITIALIZE DATABASE
-# ============================================================
+# Start the database
 
 create_database()
 migrate_database()
 
 
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
+# A few helper functions for the dashboard
 
 def get_status_counts(
     leads: List[sqlite3.Row],
 ) -> Dict[str, int]:
     """
-    Calculate pipeline counts.
+    Count how many leads are in each pipeline stage.
     """
 
     return {
@@ -1332,7 +1297,7 @@ def get_average_score(
     leads: List[sqlite3.Row],
 ) -> Optional[int]:
     """
-    Calculate average AI lead score.
+    Calculate the average score of leads that have been analyzed.
     """
 
     scores = [
@@ -1354,7 +1319,7 @@ def render_connection_status(
     connected: bool,
 ) -> None:
     """
-    Display a simple application connection indicator.
+    Show whether a part of the app is connected.
     """
 
     if connected:
@@ -1375,7 +1340,7 @@ def render_lead_card(
     compact: bool = False,
 ) -> None:
     """
-    Render a reusable lead card.
+    Display a lead in a reusable card.
     """
 
     lead_id = lead["id"]
@@ -1483,9 +1448,7 @@ def render_lead_card(
                 )
 
 
-# ============================================================
-# SIDEBAR NAVIGATION
-# ============================================================
+# Sidebar navigation
 
 with st.sidebar:
 
@@ -1562,9 +1525,7 @@ with st.sidebar:
     )
 
 
-# ============================================================
-# LOAD LEADS
-# ============================================================
+# Get the latest leads for the dashboard
 
 leads = get_leads()
 
@@ -1577,9 +1538,7 @@ average_score = get_average_score(
 )
 
 
-# ============================================================
-# DASHBOARD
-# ============================================================
+# Dashboard page
 
 if page == "Dashboard":
 
@@ -1802,9 +1761,7 @@ if page == "Dashboard":
         )
 
 
-# ============================================================
-# FIND LEADS
-# ============================================================
+# Find Leads page
 
 elif page == "Find Leads":
 
@@ -1969,9 +1926,7 @@ elif page == "Find Leads":
                     "Try a larger radius or a nearby city."
                 )
 
-    # ========================================================
-    # AI-RANKED PROSPECTS
-    # ========================================================
+    # Show businesses ranked by AI
 
     if st.session_state.qualified_leads:
 
@@ -2132,9 +2087,7 @@ elif page == "Find Leads":
                             use_container_width=True,
                         )
 
-    # ========================================================
-    # DISCOVERED BUSINESSES
-    # ========================================================
+    # Show all businesses returned by OpenStreetMap
 
     if st.session_state.discovered_businesses:
 
@@ -2220,9 +2173,7 @@ elif page == "Find Leads":
                         )
 
 
-# ============================================================
-# PIPELINE
-# ============================================================
+# Pipeline page
 
 elif page == "Pipeline":
 
@@ -2310,9 +2261,7 @@ elif page == "Pipeline":
             )
 
 
-# ============================================================
-# AI TOOLS
-# ============================================================
+# AI tools page
 
 elif page == "AI Tools":
 
@@ -2411,9 +2360,7 @@ elif page == "AI Tools":
             ]
         )
 
-        # ----------------------------------------------------
-        # QUALIFICATION
-        # ----------------------------------------------------
+        # Lead qualification
 
         with tool_tab1:
 
@@ -2607,9 +2554,7 @@ elif page == "AI Tools":
                             current_lead["qualification"]
                         )
 
-        # ----------------------------------------------------
-        # OUTREACH
-        # ----------------------------------------------------
+        # Outreach generation
 
         with tool_tab2:
 
@@ -2700,9 +2645,7 @@ elif page == "AI Tools":
                         )
                     )
 
-        # ----------------------------------------------------
-        # FOLLOW-UP
-        # ----------------------------------------------------
+        # Follow-up planning
 
         with tool_tab3:
 
@@ -2827,9 +2770,7 @@ elif page == "AI Tools":
                     )
 
 
-# ============================================================
-# BUSINESS STRATEGY
-# ============================================================
+# Business strategy page
 
 elif page == "Strategy":
 
@@ -3017,9 +2958,7 @@ elif page == "Strategy":
                         )
 
 
-# ============================================================
-# FOOTER
-# ============================================================
+# Footer
 
 st.divider()
 
