@@ -1,12 +1,12 @@
 # AI Lead Assistant
 
-An AI-powered tool I built to help small businesses find potential customers, qualify leads, create outreach, and keep track of follow-ups.
+AI Lead Assistant is a tool I built to help small businesses find potential customers, figure out which leads are worth pursuing, create personalized outreach, and keep track of follow-ups.
 
 ## Overview
 
-AI Lead Assistant is a project I built to make the process of finding and managing potential customers easier for small businesses.
+I built AI Lead Assistant around one main problem: small businesses can have a hard time finding and managing potential customers without having someone focused on sales all the time.
 
-The app combines business discovery, AI lead analysis, lead qualification, personalized outreach, and pipeline management into one workflow.
+The app combines business discovery, AI lead analysis, lead qualification, personalized outreach, follow-ups, and pipeline management into one workflow.
 
 ## How It Works
 
@@ -55,6 +55,21 @@ Users can enter their business type and goal to get an AI-generated strategy wit
 - Follow-up strategy
 - Qualification questions
 - Recommended next steps
+
+## What Someone Can Test
+
+A business can use the current version to test a complete lead-generation workflow:
+
+1. Enter a type of business and location
+2. Find potential businesses
+3. Use AI to analyze and qualify the leads
+4. Review the lead's information and score
+5. Generate personalized outreach
+6. Create follow-up messages
+7. Move leads through the pipeline
+8. Track the progress of each lead
+
+The goal is to make it easier for a small business to go from finding a potential customer to managing that customer as a sales opportunity.
 
 ## Technology
 
